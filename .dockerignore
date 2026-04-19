@@ -1,0 +1,3 @@
+models/*
+docker-compose.yml
+warmup.wav

@@ -9,3 +9,6 @@ __pycache__/
 samples/extra
 Qwen3-ASR
 TODO.md
+models
+docker-compose.yml
+warmup.wav

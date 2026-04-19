@@ -7,6 +7,7 @@
 #include "qwen_asr.h"
 #include "qwen_asr_audio.h"
 #include "qwen_asr_kernels.h"
+#include "qwen_asr_ws.h"
 #include <ctype.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -56,6 +57,7 @@ static void usage(const char *prog) {
     fprintf(stderr, "  -t <n>        Number of threads (default: all CPUs)\n");
     fprintf(stderr, "  -S <secs>     Segment target seconds (default: 0 = full-audio decode)\n");
     fprintf(stderr, "  -W <secs>     Segment-cutting silence search window ± seconds (default: 3.0)\n");
+    fprintf(stderr, "  --ws          websocket (no streaming). Model will be loaded once.\n");
     fprintf(stderr, "  --stream      Streaming mode: process in chunks with prefix rollback\n");
     fprintf(stderr, "  --stream-max-new-tokens <n>  Max generated tokens per stream step (default: 32)\n");
     fprintf(stderr, "  --enc-window-sec <secs>    Encoder attention window in seconds (1..8, default 8)\n");
@@ -69,6 +71,7 @@ static void usage(const char *prog) {
     fprintf(stderr, "  --debug       Debug output (per-layer details)\n");
     fprintf(stderr, "  --silent      No status output (only final transcription on stdout)\n");
     fprintf(stderr, "                 with -i + --stream, uses non-interactive final refinement\n");
+    fprintf(stderr, "  --warmup      Input WAV file (16-bit PCM, any sample rate) to warm up model\n");
     fprintf(stderr, "  -h            Show this help\n");
 }
 
@@ -88,6 +91,8 @@ int main(int argc, char **argv) {
     int past_text_conditioning_mode = -1; /* -1 auto, 0 off, 1 on */
     int skip_silence = 0;
     int emit_tokens = 1;
+    int use_ws = 0;
+    const char *warmup_file = NULL;
 
     for (int i = 1; i < argc; i++) {
         if (strcmp(argv[i], "-d") == 0 && i + 1 < argc) {
@@ -102,6 +107,8 @@ int main(int argc, char **argv) {
             search_sec = (float)atof(argv[++i]);
         } else if (strcmp(argv[i], "--stream") == 0) {
             stream_mode = 1;
+        } else if (strcmp(argv[i], "--ws") == 0) {
+            use_ws = 1;
         } else if (strcmp(argv[i], "--stream-max-new-tokens") == 0 && i + 1 < argc) {
             stream_max_new_tokens = atoi(argv[++i]);
         } else if (strcmp(argv[i], "--enc-window-sec") == 0 && i + 1 < argc) {
@@ -129,6 +136,8 @@ int main(int argc, char **argv) {
             verbosity = 2;
         } else if (strcmp(argv[i], "--silent") == 0) {
             verbosity = 0;
+        } else if (strcmp(argv[i], "--warmup") == 0) {
+            warmup_file = argv[++i];
         } else if (strcmp(argv[i], "-h") == 0 || strcmp(argv[i], "--help") == 0) {
             usage(argv[0]);
             return 0;
@@ -139,7 +148,7 @@ int main(int argc, char **argv) {
         }
     }
 
-    if (!model_dir || (!input_wav && !use_stdin)) {
+    if (!model_dir || (!input_wav && !use_stdin && !use_ws)) {
         usage(argv[0]);
         return 1;
     }
@@ -205,9 +214,17 @@ int main(int argc, char **argv) {
     if (emit_tokens) qwen_set_token_callback(ctx, stream_token, NULL);
     else qwen_set_token_callback(ctx, NULL, NULL);
 
+    if (warmup_file) {
+        printf("Warming up model\n");
+        fflush(stdout);
+        qwen_transcribe(ctx, warmup_file);
+    }
+    
     /* Transcribe */
     char *text = NULL;
-    if (stream_mode && use_stdin) {
+    if (use_ws) {
+        setupWs(ctx);
+    } else if (stream_mode && use_stdin) {
         /* Live incremental streaming from stdin */
         qwen_live_audio_t *live = qwen_live_audio_start_stdin();
         if (live) {

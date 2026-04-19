@@ -9,7 +9,7 @@ LDFLAGS = -lm -lpthread
 UNAME_S := $(shell uname -s)
 
 # Source files
-SRCS = qwen_asr.c qwen_asr_kernels.c qwen_asr_kernels_generic.c qwen_asr_kernels_neon.c qwen_asr_kernels_avx.c qwen_asr_audio.c qwen_asr_encoder.c qwen_asr_decoder.c qwen_asr_tokenizer.c qwen_asr_safetensors.c
+SRCS = qwen_asr.c qwen_asr_kernels.c qwen_asr_kernels_generic.c qwen_asr_kernels_neon.c qwen_asr_kernels_avx.c qwen_asr_audio.c qwen_asr_encoder.c qwen_asr_decoder.c qwen_asr_tokenizer.c qwen_asr_safetensors.c qwen_asr_ws.c
 OBJS = $(SRCS:.c=.o)
 MAIN = main.c
 TARGET = qwen_asr
@@ -40,6 +40,8 @@ help:
 # =============================================================================
 # Backend: blas (Accelerate on macOS, OpenBLAS on Linux)
 # =============================================================================
+blas: LDFLAGS += -lopenblas -lwebsockets -lssl -lcrypto
+
 ifeq ($(UNAME_S),Darwin)
 blas: CFLAGS = $(CFLAGS_BASE) -DUSE_BLAS -DACCELERATE_NEW_LAPACK
 blas: LDFLAGS += -framework Accelerate
@@ -101,4 +103,5 @@ qwen_asr_encoder.o: qwen_asr_encoder.c qwen_asr.h qwen_asr_kernels.h qwen_asr_sa
 qwen_asr_decoder.o: qwen_asr_decoder.c qwen_asr.h qwen_asr_kernels.h qwen_asr_safetensors.h
 qwen_asr_tokenizer.o: qwen_asr_tokenizer.c qwen_asr_tokenizer.h
 qwen_asr_safetensors.o: qwen_asr_safetensors.c qwen_asr_safetensors.h
-main.o: main.c qwen_asr.h qwen_asr_kernels.h
+qwen_asr_ws.o: qwen_asr.c qwen_asr_ws.h
+main.o: main.c qwen_asr.h qwen_asr_kernels.h qwen_asr_ws.h

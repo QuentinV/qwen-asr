@@ -8,7 +8,7 @@ This is a C implementation of the inference pipeline for [Qwen3-ASR](https://git
 
 Both normal (offline) and streaming (online) modes are supported. Normal mode defaults to full offline decode (`-S 0`), so the whole audio is encoded at once. Streaming mode processes audio in 2-second chunks with prefix rollback (it keeps the last few decoded tokens as context for the decoder/LLM when transcribing the next chunk).
 
-*Important practical note*: in this implementation, interactive `--stream` prioritizes incremental token stability over throughput and can be much slower than normal mode when you process an already-recorded file end-to-end.
+_Important practical note_: in this implementation, interactive `--stream` prioritizes incremental token stability over throughput and can be much slower than normal mode when you process an already-recorded file end-to-end.
 
 Audio can be piped from stdin (`--stdin`), making it easy to transcode and transcribe any format via ffmpeg. Language is usually auto-detected from audio, and can be forced with `--language`. A system prompt can bias the model toward specific terms or spellings.
 
@@ -69,6 +69,7 @@ Tokens stream to stdout as they are generated. By default, timing info is printe
 ```
 
 Token emission behavior depends on mode:
+
 - With `-S 0`, text is emitted token-by-token as soon as each decode step produces it.
 - With segmented mode (`-S > 0`), default behavior is still token-by-token ASAP.
 - With segmented mode plus `--past-text yes`, boundary cleanup is enabled automatically and output is emitted once per segment after post-processing.
@@ -85,6 +86,7 @@ For very long files, decoder cost still grows with sequence history. Use `--stre
 - **If you want stronger continuity across segments/chunks**: try `--past-text yes` (can help continuity, can also cause drift on some files).
 
 Large-file tradeoff summary:
+
 - `-S 20`: offline segmented decode, usually best throughput on long files, stable memory, and token-by-token output.
 - `-S 20 --past-text yes`: buffered per-segment output with boundary cleanup and continuity bias.
 - `--stream`: incremental output while audio arrives, lower interaction latency, but usually higher total compute for full prerecorded files.
@@ -113,6 +115,7 @@ These limits activate automatically when the stream is long enough to exceed the
 `--stream --silent` has a special non-interactive behavior for file input: it skips chunk-by-chunk streaming and runs one direct final refinement pass. (For live stdin streaming, chunked mode is still used.)
 
 Default stream settings:
+
 - `chunk_size`: 2s
 - `encoder_window`: 8s (`--enc-window-sec`, range `1..8`)
 - `rollback`: 5 tokens
@@ -141,20 +144,25 @@ Streaming tuning:
 
 Shows inline Unicode symbols on stderr alongside the transcription, useful for diagnosing streaming pipeline behavior in real time:
 
-| Symbol | Meaning |
-|--------|---------|
-| `▶` | Encoder chunk processed |
-| `·` | Decoder prefill completed |
-| `▪` | Decode step (normal speed) |
-| `▸` | Decode step (slow, >30 ms/token) |
-| `⟳` | Encoder window evicted (sliding window) |
+| Symbol | Meaning                                 |
+| ------ | --------------------------------------- |
+| `▶`    | Encoder chunk processed                 |
+| `·`    | Decoder prefill completed               |
+| `▪`    | Decode step (normal speed)              |
+| `▸`    | Decode step (slow, >30 ms/token)        |
+| `⟳`    | Encoder window evicted (sliding window) |
 
 Example output (stderr + stdout interleaved):
+
 ```
 ▶·▪▶·▪▶·▪And so, my fellow Americans,▶·▪ ask not what your country...
 ```
 
 Monitor output goes to stderr and does not affect the transcription text on stdout. It can be combined with `--debug` for full diagnostics, or used alone for a lightweight visual heartbeat.
+
+### Websocket mode
+
+`--ws` can be used to start a websocket server on port `5000`. Full pcm audio can be send and text is sent back. Does not yet support streaming.
 
 ### Segment Splitting (`-S`)
 
@@ -167,6 +175,7 @@ Splits audio into segments of ~N seconds, finding segment-cutting silence bounda
 Default segmented behavior (`-S > 0`) emits tokens ASAP, like full offline mode.
 
 When `--past-text yes` is used, segmented mode switches to buffered per-segment emission and enables boundary post-processing:
+
 - Split points are chosen near low-energy (silence-like) regions within the `-W` window to avoid cutting in the middle of words.
 - If past-text conditioning causes a segment collapse (too short for its duration) or large duplicate span, that segment is retried without conditioning.
 - If collapses keep happening, past-text conditioning is disabled for the remainder of the run.
@@ -182,6 +191,7 @@ If you want extra continuity bias across boundaries, enable conditioning explici
 If repeated conditioned segment collapses are detected, conditioning is disabled automatically for the rest of the run (fail-open behavior).
 
 The same flags apply to `--stream` mode:
+
 - `--past-text auto` (default) enables text-prefix conditioning in streaming mode.
 - `--past-text yes` forces conditioning on.
 - `--past-text no` forces conditioning off.
@@ -203,6 +213,7 @@ The same flags apply to `--stream` mode:
 When enabled, long silent spans are removed before transcription (short pauses are kept). This reduces compute on recordings with long dead-air sections.
 
 Tradeoffs:
+
 - Useful for podcasts, meetings, and captured audio with long pauses.
 - Can slightly alter timing-sensitive boundary behavior and punctuation.
 - Disabled by default to preserve baseline behavior.
@@ -238,6 +249,10 @@ Injects a system prompt into the model's chat template. This slightly biases the
 - **Style hints**: `--prompt "Use formal punctuation and capitalization."`
 
 The prompt is encoded once and prepended to every segment/chunk. Its effect is subtle — it nudges the model's token probabilities rather than forcing specific output.
+
+### Warmup
+
+`--warmup ./audiofile.wav` can be used to warmup the engine after the model is loaded.
 
 ### Reading Audio from Stdin
 
@@ -316,6 +331,7 @@ Tokens are emitted via the callback as they become "fixed" (past the rollback wi
 
 The repository includes `asr_regression.py` (repo root), a stdlib-only regression harness.
 It scans `samples/**/*.wav` recursively:
+
 - quality regression runs on WAV files that already have a sibling `.txt` reference
 - focused checks (segmented conditioning, streaming, stream-cache equivalence) use fixed targets
 
@@ -353,6 +369,7 @@ make test-stream-cache
 ```
 
 Output format:
+
 - Each sample starts with a progress line: `START i/N`.
 - Live model text is shown while that sample is transcribed.
 - The sample closes with `DONE: OK i/N` (only `OK` is green) or `DONE: FAIL i/N` (status in red).
@@ -366,6 +383,7 @@ And so, my fellow Americans, ask not what your country can do for you...
 ```
 
 Per sample, the tool reports two distances:
+
 - `exact`: character-level Levenshtein distance on raw text.
 - `norm`: character-level Levenshtein distance after normalization
   (punctuation -> spaces, lowercase, whitespace collapsed).
@@ -380,12 +398,43 @@ make clean      # Clean build artifacts
 ```
 
 For Linux, install OpenBLAS first:
+
 ```bash
 # Ubuntu/Debian
 sudo apt install libopenblas-dev
 
 # Fedora
 sudo dnf install openblas-devel
+```
+
+## Docker
+
+Dockerfile is configured to start with `docker-entrypoint.sh`, any flag can be given.
+
+Example of `docker-compose.yml`
+
+```
+services:
+  asr:
+    build: .
+    ports:
+      - "5000:5000"
+    environment:
+      - MODEL_SIZE=large
+      - MODEL_DIR=/models
+    volumes:
+      - ./models:/models
+      - ./warmup.wav:/warmup.wav
+    command:
+      [
+        "--ws",
+        "--skip-silence",
+        "--language",
+        "French",
+        "--warmup",
+        "/warmup.wav",
+      ]
+
 ```
 
 ## How Fast Is It?
@@ -395,18 +444,18 @@ Benchmarks were recomputed on **Apple M3 Max** (128GB RAM) with `make blas` (sin
 
 ### Offline Mode (Full + Segmented)
 
-| Setup | Audio | 0.6B (`Inference`, realtime, wall) | 1.7B (`Inference`, realtime, wall) |
-|-------|-------|-------------------------------------|-------------------------------------|
-| `samples/jfk.wav -S 0` | `11.0s` | `1.4s`, `7.99x`, `1.83s` | `2.6s`, `4.29x`, `3.17s` |
-| `45s_dont_be_afraid_of_me.wav -S 30 -W 3` | `45.0s` | `3.4s`, `13.38x`, `3.64s` | `5.9s`, `7.63x`, `6.52s` |
-| `89s_ill_come_back_down_as_soon_as.wav -S 30 -W 3` | `88.9s` | `13.1s`, `6.78x`, `13.39s` | `26.6s`, `3.34x`, `27.22s` |
+| Setup                                              | Audio   | 0.6B (`Inference`, realtime, wall) | 1.7B (`Inference`, realtime, wall) |
+| -------------------------------------------------- | ------- | ---------------------------------- | ---------------------------------- |
+| `samples/jfk.wav -S 0`                             | `11.0s` | `1.4s`, `7.99x`, `1.83s`           | `2.6s`, `4.29x`, `3.17s`           |
+| `45s_dont_be_afraid_of_me.wav -S 30 -W 3`          | `45.0s` | `3.4s`, `13.38x`, `3.64s`          | `5.9s`, `7.63x`, `6.52s`           |
+| `89s_ill_come_back_down_as_soon_as.wav -S 30 -W 3` | `88.9s` | `13.1s`, `6.78x`, `13.39s`         | `26.6s`, `3.34x`, `27.22s`         |
 
 ### Streaming Mode (45s clip, interactive `--stream`)
 
-| Setup | 0.6B (`Inference`, realtime) | 1.7B (`Inference`, realtime) |
-|-------|--------------------------------|--------------------------------|
-| cache ON (default, with prefill KV reuse) | `9.6s`, `4.69x` | `17.7s`, `2.54x` |
-| cache OFF (`QWEN_STREAM_NO_ENC_CACHE=1`) | `22.0s`, `2.05x` | `34.3s`, `1.31x` |
+| Setup                                     | 0.6B (`Inference`, realtime) | 1.7B (`Inference`, realtime) |
+| ----------------------------------------- | ---------------------------- | ---------------------------- |
+| cache ON (default, with prefill KV reuse) | `9.6s`, `4.69x`              | `17.7s`, `2.54x`             |
+| cache OFF (`QWEN_STREAM_NO_ENC_CACHE=1`)  | `22.0s`, `2.05x`             | `34.3s`, `1.31x`             |
 
 Outputs were exact matches between cache ON/OFF in this benchmark.
 
@@ -416,57 +465,60 @@ For file input, `--stream --silent` does not run interactive chunk commits: it e
 
 ### Long-file Example (`/tmp/nirvana.wav`, 135s, 0.6B)
 
-| Mode | Result |
-|------|--------|
-| `--stream` | `141.3s` inference (`0.96x` realtime) |
-| offline segmented mode (`-S 30` in this measurement) | `14.0s` inference (`9.64x` realtime) |
+| Mode                                                 | Result                                |
+| ---------------------------------------------------- | ------------------------------------- |
+| `--stream`                                           | `141.3s` inference (`0.96x` realtime) |
+| offline segmented mode (`-S 30` in this measurement) | `14.0s` inference (`9.64x` realtime)  |
 
 ## Model Architecture
 
 Qwen3-ASR is a speech-to-text model available in 0.6B and 1.7B parameter variants:
 
 **Pipeline:**
+
 ```
 WAV -> 16kHz -> Mel Spectrogram -> Conv2D Stem -> Encoder -> Projection -> Decoder -> Tokens
 ```
 
-| Component | Architecture |
-|-----------|-------------|
-| Conv2D Stem | 3 layers (480 channels, 3x3, stride 2), 8x time downsampling |
-| Audio Encoder | Transformer with bidirectional windowed attention, sinusoidal PE |
-| Projection | Linear -> GELU -> Linear (encoder dim -> decoder dim) |
-| LLM Decoder | Qwen3 with GQA, per-head Q/K RMSNorm, NeoX split-half RoPE, SwiGLU |
+| Component     | Architecture                                                       |
+| ------------- | ------------------------------------------------------------------ |
+| Conv2D Stem   | 3 layers (480 channels, 3x3, stride 2), 8x time downsampling       |
+| Audio Encoder | Transformer with bidirectional windowed attention, sinusoidal PE   |
+| Projection    | Linear -> GELU -> Linear (encoder dim -> decoder dim)              |
+| LLM Decoder   | Qwen3 with GQA, per-head Q/K RMSNorm, NeoX split-half RoPE, SwiGLU |
 
-| Parameter | 0.6B | 1.7B |
-|-----------|------|------|
-| Encoder layers | 18 | 24 |
-| Encoder dim | 896 | 1024 |
-| Decoder layers | 28 | 28 |
-| Decoder dim | 1024 | 2048 |
-| GQA heads | 16 Q / 8 KV | 16 Q / 8 KV |
-| Vocab size | 151,936 | 151,936 |
-| Weight format | BF16 | BF16 |
+| Parameter           | 0.6B                  | 1.7B        |
+| ------------------- | --------------------- | ----------- |
+| Encoder layers      | 18                    | 24          |
+| Encoder dim         | 896                   | 1024        |
+| Decoder layers      | 28                    | 28          |
+| Decoder dim         | 1024                  | 2048        |
+| GQA heads           | 16 Q / 8 KV           | 16 Q / 8 KV |
+| Vocab size          | 151,936               | 151,936     |
+| Weight format       | BF16                  | BF16        |
 | Supported languages | 30 (see `--language`) |
 
 ## Memory Requirements
 
 Memory usage has two parts:
+
 - Static model footprint (allocated once at load time).
 - Runtime footprint (depends on input length and decoding mode).
 
 ### Static Footprint (Model Load)
 
 These numbers come from the current implementation and model files:
+
 - Safetensors are memory-mapped.
 - Encoder BF16 weights are converted to F32 and kept in heap memory.
 - Decoder builds a fused gate/up matrix copy for faster decode.
 
-| Component | 0.6B | 1.7B |
-|-----------|------|------|
-| safetensors mmap files | 1.747 GiB | 4.376 GiB |
-| encoder copied F32 weights | 0.694 GiB | 1.183 GiB |
+| Component                          | 0.6B      | 1.7B      |
+| ---------------------------------- | --------- | --------- |
+| safetensors mmap files             | 1.747 GiB | 4.376 GiB |
+| encoder copied F32 weights         | 0.694 GiB | 1.183 GiB |
 | decoder extra heap (fused + norms) | 0.328 GiB | 1.313 GiB |
-| static total (theoretical) | 2.770 GiB | 6.871 GiB |
+| static total (theoretical)         | 2.770 GiB | 6.871 GiB |
 
 ### Runtime Scaling (Why `-S 0` Grows)
 
@@ -480,12 +532,14 @@ For one segment, dominant runtime allocations scale with sequence length:
 - `kv_max = prefill_len + 1024`
 
 Main growing buffers:
+
 - KV cache: `2 * 28 * kv_max * 1024 * 4` bytes
 - Prefill buffers:
   - 0.6B: `77,824 * pref_cap` bytes
   - 1.7B: `131,072 * pref_cap` bytes
 
 Implications:
+
 - `-S 0` (full-audio decode) lets `total_seq` grow with audio duration, so peak memory increases with file length.
 - `-S 20` (or any segmented mode) bounds per-segment `total_seq`, so memory stays nearly flat as file length increases.
 - Enabling `--past-text yes` adds previous text tokens to each segment/chunk prompt and can increase memory again.
@@ -495,13 +549,14 @@ Implications:
 Measured on Apple M3 Max using the current codebase:
 
 | Audio length | 0.6B `-S 0` | 0.6B `-S 20` | 1.7B `-S 0` | 1.7B `-S 20` |
-|--------------|-------------:|-------------:|-------------:|-------------:|
-| 10.000s | 2.695 GiB | 2.688 GiB | 6.573 GiB | 6.573 GiB |
-| 45.000s | 2.861 GiB | 2.757 GiB | 6.783 GiB | 6.700 GiB |
-| 88.890s | 3.173 GiB | 2.815 GiB | 7.113 GiB | 6.742 GiB |
-| 119.262s | 3.254 GiB | 2.789 GiB | 7.288 GiB | 6.706 GiB |
+| ------------ | ----------: | -----------: | ----------: | -----------: |
+| 10.000s      |   2.695 GiB |    2.688 GiB |   6.573 GiB |    6.573 GiB |
+| 45.000s      |   2.861 GiB |    2.757 GiB |   6.783 GiB |    6.700 GiB |
+| 88.890s      |   3.173 GiB |    2.815 GiB |   7.113 GiB |    6.742 GiB |
+| 119.262s     |   3.254 GiB |    2.789 GiB |   7.288 GiB |    6.706 GiB |
 
 In practice:
+
 - For long files, segmented mode is safer for both speed and memory.
 - Default is `-S 0`, so for large files explicitly pick segmented mode (`-S 20` or `-S 30`).
 - Use `-S 0` mainly for short files where full-context quality is worth the extra memory/time.
