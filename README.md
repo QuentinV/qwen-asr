@@ -163,6 +163,21 @@ Monitor output goes to stderr and does not affect the transcription text on stdo
 ### Websocket mode
 
 `--ws` can be used to start a websocket server on port `5000`. Full pcm audio can be send and text is sent back. Does not yet support streaming.
+Websocket needs to be initialized with `qwen-protocol` protocol.
+
+Example nodejs code:
+
+```javascript
+const ws = new WebSocket(`ws://localhost:5000`, "qwen-protocols");
+
+ws.on("message", (msg) => {
+  console.log("result", msg);
+});
+
+ws.on("error", (e) => {
+  console.log("ws", e);
+});
+```
 
 ### Segment Splitting (`-S`)
 
